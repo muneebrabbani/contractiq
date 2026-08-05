@@ -21,6 +21,7 @@ class ClauseType(str, Enum):
     INSURANCE = "insurance"
     DATA_PROTECTION = "data_protection"
     DEFINITIONS = "definitions"
+    SCOPE_OF_WORK = "scope_of_work"
     ENTIRE_AGREEMENT = "entire_agreement"
     AMENDMENT = "amendment"
     SEVERABILITY = "severability"

@@ -1,17 +1,6 @@
-# Data
 data/
 *.sqlite3
-
-# OpenShift / Helm
-openshift/
-
-# CI/CD (internal runner/registry config)
-.gitlab-ci.yml
-
-# Secrets and env
 .env
-
-# Python
 __pycache__/
 *.pyc
 .venv/
@@ -20,6 +9,6 @@ venv/
 *.egg-info/
 dist/
 build/
-
-# Misc
 oc.exe
+HANDOVER.md
+ARCHITECTURE.md

@@ -6,6 +6,7 @@ from contractiq.extraction.models import ClauseType
 # judgment call, not something to let an LLM infer.
 CHECKLISTS: dict[str, list[ClauseType]] = {
     "MSA": [
+        ClauseType.SCOPE_OF_WORK,
         ClauseType.TERMINATION,
         ClauseType.GOVERNING_LAW,
         ClauseType.PAYMENT_TERMS,
@@ -27,6 +28,7 @@ CHECKLISTS: dict[str, list[ClauseType]] = {
         ClauseType.ENTIRE_AGREEMENT,
     ],
     "SOW": [
+        ClauseType.SCOPE_OF_WORK,
         ClauseType.PAYMENT_TERMS,
         ClauseType.TERMINATION,
         ClauseType.GOVERNING_LAW,

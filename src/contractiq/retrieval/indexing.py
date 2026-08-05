@@ -7,9 +7,9 @@ from openai import OpenAI
 
 from contractiq.config import settings
 from contractiq.extraction.clause_chunking import load_all_clause_chunks
-from contractiq.extraction.clause_classifier import classify_clause_type
+from contractiq.extraction.clause_classifier import classify_clause_types_batch
 from contractiq.extraction.db import ContractRecord, get_session
-from contractiq.extraction.models import ClauseChunk
+from contractiq.extraction.models import ClauseChunk, ClauseType
 from contractiq.retrieval.vector_store import index_chunks
 
 logger = logging.getLogger(__name__)
@@ -17,7 +17,7 @@ logger = logging.getLogger(__name__)
 PROCESSED_DIR = Path("data/processed")
 
 
-def _metadata_for_chunk(chunk: ClauseChunk, record: ContractRecord | None, client: OpenAI) -> dict:
+def _metadata_for_chunk(chunk: ClauseChunk, record: ContractRecord | None, clause_type: ClauseType) -> dict:
     return {
         "doc_id": chunk.doc_id,
         "source_file": chunk.source_file,
@@ -26,7 +26,7 @@ def _metadata_for_chunk(chunk: ClauseChunk, record: ContractRecord | None, clien
         "page": chunk.page,
         "segment": record.segment if record else None,
         "status": record.status if record else None,
-        "clause_type": classify_clause_type(chunk, client).value,
+        "clause_type": clause_type.value,
     }
 
 
@@ -46,7 +46,16 @@ def index_chunks_for(chunks: list[ClauseChunk], client: OpenAI) -> int:
     }
     session.close()
 
-    chunks_with_metadata = [(c, _metadata_for_chunk(c, records.get(c.doc_id), client)) for c in chunks]
+    # Classifying clause types is the slow part of indexing (one blocking
+    # LLM call per chunk that a section-title keyword can't resolve) --
+    # classify_clause_types_batch runs the free keyword pass over everything
+    # up front and only sends the LLM-fallback subset out concurrently,
+    # instead of one call at a time serially (see clause_classifier.py).
+    clause_types = classify_clause_types_batch(chunks, client)
+
+    chunks_with_metadata = [
+        (c, _metadata_for_chunk(c, records.get(c.doc_id), clause_types[c.chunk_id])) for c in chunks
+    ]
     return index_chunks(chunks_with_metadata, client)
 
 

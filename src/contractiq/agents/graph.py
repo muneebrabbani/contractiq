@@ -9,6 +9,7 @@ from openai import OpenAI
 from pydantic import BaseModel
 
 from contractiq.agents.classifier import classify_intent
+from contractiq.agents.contextualize import contextualize_question
 from contractiq.agents.drafting_agent import drafting_agent
 from contractiq.agents.models import REVIEW_BANNER, AgentResponse, DraftResult, Intent, RouteTrace
 from contractiq.agents.rag_agent import rag_agent
@@ -34,6 +35,9 @@ DECLINE_MESSAGE = (
 
 class SupervisorState(TypedDict):
     question: str
+    history: list[dict]
+    contextualized_question: str
+    active_doc_ids: set[str] | None  # sticky RAG document scope, carried in from the prior turn
     intent: str
     reasoning: str
     answer: str
@@ -48,10 +52,20 @@ class _DraftingRequest(BaseModel):
     business_brief: str
 
 
+def _contextualize_node(state: SupervisorState) -> dict:
+    client = OpenAI(api_key=settings.openai_api_key)
+    contextualized = contextualize_question(state["question"], state["history"], client)
+    if contextualized != state["question"]:
+        logger.info(
+            "contextualized question: raw=%r rewritten=%r", state["question"], contextualized
+        )
+    return {"contextualized_question": contextualized}
+
+
 def _classify_node(state: SupervisorState) -> dict:
     client = OpenAI(api_key=settings.openai_api_key)
     try:
-        decision = classify_intent(state["question"], client)
+        decision = classify_intent(state["contextualized_question"], client)
         intent, reasoning = decision.intent, decision.reasoning
     except Exception:
         logger.exception("Intent classification failed for question: %r", state["question"])
@@ -71,13 +85,30 @@ def _route_selector(state: SupervisorState) -> str:
 
 
 def _rag_node(state: SupervisorState) -> dict:
-    result = rag_agent(state["question"])
-    return {"answer": result.answer, "citations": result.citations, "contexts": result.contexts}
+    result, doc_ids = rag_agent(
+        state["contextualized_question"], fallback_doc_ids=state["active_doc_ids"]
+    )
+    if doc_ids:
+        logger.info("rag document scope: doc_ids=%s", sorted(doc_ids))
+    return {
+        "answer": result.answer,
+        "citations": result.citations,
+        "contexts": result.contexts,
+        # only overwrite the sticky scope when this turn actually resolved
+        # one -- an ambiguous/unfiltered turn shouldn't erase what the
+        # session already established.
+        "active_doc_ids": doc_ids if doc_ids else state["active_doc_ids"],
+    }
 
 
 def _sql_node(state: SupervisorState) -> dict:
     client = OpenAI(api_key=settings.openai_api_key)
-    answer_text, sql = sql_agent(state["question"], client)
+    # Uses the contextualized question, not the raw one: classify already
+    # routes based on the contextualized text, so a follow-up like "when was
+    # the addendum on the main contract" (raw) needs "the main contract"
+    # resolved to a specific vendor before it ever reaches SQL generation --
+    # otherwise the agent has nothing to filter on and generates no query.
+    answer_text, sql = sql_agent(state["contextualized_question"], client)
     return {"answer": answer_text, "sql": sql}
 
 
@@ -130,13 +161,15 @@ def _drafting_node(state: SupervisorState) -> dict:
 
 def build_graph():
     graph = StateGraph(SupervisorState)
+    graph.add_node("contextualize", _contextualize_node)
     graph.add_node("classify", _classify_node)
     graph.add_node("rag", _rag_node)
     graph.add_node("sql", _sql_node)
     graph.add_node("drafting", _drafting_node)
     graph.add_node("decline", _decline_node)
 
-    graph.set_entry_point("classify")
+    graph.set_entry_point("contextualize")
+    graph.add_edge("contextualize", "classify")
     graph.add_conditional_edges("classify", _route_selector, _AGENT_BY_INTENT)
     graph.add_edge("rag", END)
     graph.add_edge("sql", END)
@@ -156,7 +189,27 @@ def _get_graph():
     return _compiled_graph
 
 
-def run_supervisor(question: str) -> AgentResponse:
+def run_supervisor(
+    question: str,
+    history: list[dict] | None = None,
+    active_doc_ids: set[str] | None = None,
+) -> AgentResponse:
+    """`history` is the prior conversation turns (each `{"role", "content"}`,
+    oldest first, NOT including `question` itself) -- pass None or [] for a
+    stateless call (e.g. eval/routing-test callers, which must keep scoring
+    against the single-turn baseline). Only the last few turns are actually
+    used (contextualize.py's HISTORY_WINDOW); the intent classifier, RAG
+    retrieval/vendor-hint extraction, and the SQL agent all see the
+    history-resolved question, not the raw one -- classify routes off the
+    resolved text, so SQL must see the same text it was routed on, or a
+    follow-up like "the main contract" reaches SQL generation with nothing
+    to filter on. Drafting still sees the raw question.
+
+    `active_doc_ids` is the RAG document scope a prior turn in this session
+    already resolved to (see `AgentResponse.active_doc_ids` on the previous
+    call's return value) -- pass it back in on the next call so a follow-up
+    that doesn't re-name the vendor still stays scoped to it, as a fallback
+    behind contextualization rather than instead of it."""
     if not settings.openai_api_key:
         raise RuntimeError(
             "OPENAI_API_KEY is not set. Copy .env.example to .env and fill it in "
@@ -167,6 +220,9 @@ def run_supervisor(question: str) -> AgentResponse:
     result = graph.invoke(
         {
             "question": question,
+            "history": history or [],
+            "contextualized_question": "",
+            "active_doc_ids": active_doc_ids,
             "intent": "",
             "reasoning": "",
             "answer": "",
@@ -180,6 +236,7 @@ def run_supervisor(question: str) -> AgentResponse:
     intent = Intent(result["intent"])
     trace = RouteTrace(
         question=question,
+        contextualized_question=result["contextualized_question"],
         intent=intent,
         reasoning=result["reasoning"],
         agent=_AGENT_BY_INTENT[intent.value],
@@ -193,5 +250,6 @@ def run_supervisor(question: str) -> AgentResponse:
         contexts=result.get("contexts") or [],
         sql=result.get("sql"),
         draft=result.get("draft"),
+        active_doc_ids=result.get("active_doc_ids"),
         trace=trace,
     )

@@ -1,6 +1,6 @@
 from contractiq.extraction.clause_chunking import chunk_document as chunk_document_by_clause
 from contractiq.extraction.clause_chunking import load_all_clause_chunks
-from contractiq.extraction.clause_classifier import classify_clause_type
+from contractiq.extraction.clause_classifier import classify_clause_type, classify_clause_types_batch
 from contractiq.extraction.db import ContractRecord, get_session, save_record
 from contractiq.extraction.metadata import extract_all, extract_metadata
 from contractiq.extraction.models import (
@@ -27,6 +27,7 @@ __all__ = [
     "ClauseType",
     "ContractMetadata",
     "classify_clause_type",
+    "classify_clause_types_batch",
     "scan_directory",
     "run_recon",
     "apply_redactions",

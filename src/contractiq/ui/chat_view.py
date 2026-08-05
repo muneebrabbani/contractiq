@@ -17,6 +17,9 @@ def _render_extras(message: dict) -> None:
         with st.expander("View query"):
             st.code(message["sql"], language="sql")
 
+    if message.get("resolved_question"):
+        st.caption(f"Understood as: “{message['resolved_question']}”")
+
     if message.get("docx_path"):
         docx_path = Path(message["docx_path"])
         if docx_path.exists():
@@ -34,6 +37,8 @@ def render() -> None:
 
     if "messages" not in st.session_state:
         st.session_state.messages = []
+    if "active_doc_ids" not in st.session_state:
+        st.session_state.active_doc_ids = None
 
     for message in st.session_state.messages:
         with st.chat_message(message["role"]):
@@ -46,10 +51,16 @@ def render() -> None:
     if not question:
         return
 
+    # History is everything before this turn -- the just-appended question
+    # is passed separately, not doubled up in both places.
+    history = list(st.session_state.messages)
     st.session_state.messages.append({"role": "user", "content": question})
 
     with st.spinner("Thinking..."):
-        response = run_supervisor(question)
+        response = run_supervisor(
+            question, history=history, active_doc_ids=st.session_state.active_doc_ids
+        )
+    st.session_state.active_doc_ids = response.active_doc_ids
 
     assistant_message: dict = {
         "role": "assistant",
@@ -65,6 +76,8 @@ def render() -> None:
         assistant_message["sql"] = response.sql
     if response.draft:
         assistant_message["docx_path"] = response.draft.docx_path
+    if response.trace.contextualized_question != question:
+        assistant_message["resolved_question"] = response.trace.contextualized_question
 
     st.session_state.messages.append(assistant_message)
     st.rerun()

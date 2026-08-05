@@ -12,7 +12,6 @@ from contractiq.extraction.db import ContractRecord, get_session, save_record
 from contractiq.extraction.metadata import extract_metadata
 from contractiq.extraction.redaction import append_redaction_log, redact_document
 from contractiq.ingestion.loaders import SUPPORTED_SUFFIXES
-from contractiq.retrieval.indexing import index_chunks_for
 
 logger = logging.getLogger(__name__)
 
@@ -73,6 +72,16 @@ def process_uploaded_document(
         related_doc_id=related_doc_id,
     )
     session.close()
+
+    # Deliberately a local import, not module-level: contractiq.retrieval's
+    # package __init__ imports contractiq.extraction.clause_chunking, which
+    # (as a submodule import) initializes this package first -- a module-level
+    # import here would try to pull contractiq.retrieval.indexing back in
+    # while contractiq.extraction is still mid-init, a real circular import
+    # that fails depending on which package happens to get imported first in
+    # a fresh process. Deferring to call time sidesteps it: by the time this
+    # function actually runs, both packages are fully loaded either way.
+    from contractiq.retrieval.indexing import index_chunks_for
 
     index_chunks_for(chunks, client)
 
