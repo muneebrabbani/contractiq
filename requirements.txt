@@ -1,0 +1,29 @@
+openai
+pydantic
+pydantic-settings
+python-dotenv
+
+# Ingestion
+pymupdf
+python-docx
+pytesseract
+pillow
+tiktoken
+
+# Extraction
+spacy
+sqlalchemy
+
+# Eval
+ragas
+# ragas 0.4.3 unconditionally imports a langchain_community.chat_models
+# submodule that newer langchain-community releases removed; pin below that.
+langchain-community<0.4
+
+# Retrieval
+chromadb
+rank-bm25
+sentence-transformers
+
+# Agents
+langgraph

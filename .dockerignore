@@ -1,0 +1,23 @@
+# Contract data (PII-bearing) -- must come from a mounted PVC, never baked
+# into an image layer that could end up in a registry.
+data/
+
+# Secrets -- injected via OpenShift Secret, never committed or copied in.
+.env
+
+# Dev-only: not part of the serving-time flow (ARCHITECTURE.md). Re-include
+# if you ever want to run the RAGAS eval harness inside the cluster.
+eval_data/
+
+.git/
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.vscode/
+.idea/
+.DS_Store
