@@ -25,6 +25,23 @@ HISTORY_WINDOW = 6
 # declining or erroring loudly. The fix is making entity carry-over an
 # explicit requirement, not just "don't hallucinate", backed by worked
 # examples of exactly this pattern.
+#
+# A second, later fix: the model over-corrected on "carry forward established
+# detail" and started restating a contract's full formal title/description
+# whenever one had come up earlier in the conversation -- e.g. rewriting
+# "termination clauses for Asif & Co" into "...for Asif & Co for the
+# Provisioning of Nationwide Civil Works Services" (that trailing clause is
+# the contract's official agreement_title, not anything the user asked for).
+# That's harmless for a human reader but actively harmful for retrieval: this
+# corpus has ~17 near-identical Civil Works contracts sharing almost that
+# exact title, so restating it drags in generic/boilerplate-matching passages
+# and can bury the clause actually being asked about (see rag_agent.py's
+# vendor-name stripping, which addresses a related but distinct case -- the
+# vendor's own *name* repeated in the query -- and doesn't touch a restated
+# formal title). The fix here is instructing minimal, not maximal,
+# carry-over: resolve the reference with the shortest identifier that keeps
+# the question unambiguous (typically just the vendor name), never the full
+# formal title or description, even if that title was mentioned earlier.
 SYSTEM_PROMPT = (
     "Rewrite the new question into a fully self-contained, standalone "
     "question -- one answerable by someone with no access to the "
@@ -37,6 +54,12 @@ SYSTEM_PROMPT = (
     "forward a name or detail that was already stated earlier is REQUIRED, "
     "not a forbidden addition -- only genuinely new facts that were never "
     "mentioned anywhere in the conversation are off-limits.\n\n"
+    "When resolving a reference, use the SHORTEST identifier that keeps the "
+    "question unambiguous -- almost always just the vendor/company name. "
+    "Do NOT restate a contract's full formal title or description (e.g. "
+    "\"Agreement for Provisioning of Nationwide Civil Works Services\") even "
+    "if it was mentioned earlier in the conversation -- that's bulk the "
+    "question doesn't need, not a missing reference to resolve.\n\n"
     "Do not answer the question. If the new question already names its own "
     "subject explicitly, return it unchanged.\n\n"
     "Example:\n"
@@ -51,7 +74,16 @@ SYSTEM_PROMPT = (
     "assistant: [clause text for Nextcom Links]\n"
     "New question: Is there any price mentioned in the contract?\n"
     "Standalone question: Is there any price mentioned in the Nextcom Links "
-    "contract?"
+    "contract?\n\n"
+    "Example (do not over-elaborate the reference):\n"
+    "Conversation so far:\n"
+    "user: What is the Asif & Co agreement about?\n"
+    "assistant: It's the Agreement for Provisioning of Nationwide Civil "
+    "Works Services between TES and Asif & Co.\n"
+    "New question: mention the termination clauses for Asif & Co main "
+    "contract\n"
+    "Standalone question: What are the termination clauses in the Asif & Co "
+    "agreement?"
 )
 
 

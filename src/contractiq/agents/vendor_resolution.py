@@ -60,6 +60,28 @@ def normalize_vendor_text(text: str) -> str:
     return re.sub(r"\s+", " ", text).strip()
 
 
+# Once a question has been narrowed to a single vendor's doc_ids, repeating
+# that vendor's name in the search text stops helping and starts hurting:
+# every remaining candidate chunk is already from that vendor, so dense/BM25
+# scoring (and the cross-encoder rerank downstream) treats party-identification
+# boilerplate ("ASIF AND CO, a sole proprietorship of...") as the best match
+# for the query, out-ranking the clause actually being asked about -- observed
+# for real: "termination references of Asif & Co" returned zero termination
+# clauses in the top-5 until the vendor name was stripped from the search
+# text (the doc_id filter alone still enforces the vendor scope).
+def strip_vendor_mention(text: str, hint: str) -> str:
+    """Best-effort removal of the vendor name (and a leading possessive/
+    article, e.g. "the ... agreement" -> "agreement") from `text`, for use as
+    a search-only query when `hint` already became a hard doc_id filter.
+    Falls back to the original `text` unchanged if stripping the hint leaves
+    nothing substantive to search on."""
+    pattern = re.compile(
+        r"\b(the\s+)?" + re.escape(hint) + r"('s)?\b", re.IGNORECASE
+    )
+    stripped = re.sub(r"\s+", " ", pattern.sub("", text)).strip()
+    return stripped if len(stripped) >= 8 else text
+
+
 def resolve_vendor_doc_ids(hint: str) -> set[str] | None:
     session = get_session()
     records = session.query(ContractRecord).all()

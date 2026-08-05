@@ -133,14 +133,29 @@ def answer(
     segment: str | None = None,
     status: str | None = None,
     doc_ids: set[str] | None = None,
+    retrieval_query: str | None = None,
 ) -> AnswerResult:
+    """`retrieval_query`, if given, is used for the dense/BM25/rerank search
+    instead of `query` -- `query` is still what's shown to the generation
+    model and echoed in the prompt. Needed when `doc_ids` already narrows the
+    corpus to one vendor's documents and `query` names that same vendor: once
+    every candidate chunk is from that vendor, a name mentioned in the query
+    text stops being a useful filter and starts being noise that dense/BM25/
+    the cross-encoder all still weight heavily, so entity-identification
+    boilerplate ("ASIF AND CO, a sole proprietorship of...") can out-rank the
+    clause actually being asked about. See agents/rag_agent.py, which passes
+    a vendor-name-stripped `retrieval_query` for exactly this case -- a real
+    case observed where a termination question against a single vendor's
+    documents returned zero termination clauses in the top-k."""
     if not settings.openai_api_key:
         raise RuntimeError(
             "OPENAI_API_KEY is not set. Copy .env.example to .env and fill it in "
             "before running the answer pipeline."
         )
     client = OpenAI(api_key=settings.openai_api_key)
-    retrieved = retrieve(query, k=k, segment=segment, status=status, doc_ids=doc_ids, client=client)
+    retrieved = retrieve(
+        retrieval_query or query, k=k, segment=segment, status=status, doc_ids=doc_ids, client=client
+    )
 
     if not retrieved:
         return AnswerResult(

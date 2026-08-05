@@ -2,7 +2,11 @@ from __future__ import annotations
 
 from openai import OpenAI
 
-from contractiq.agents.vendor_resolution import extract_vendor_hint, resolve_vendor_doc_ids
+from contractiq.agents.vendor_resolution import (
+    extract_vendor_hint,
+    resolve_vendor_doc_ids,
+    strip_vendor_mention,
+)
 from contractiq.config import settings
 from contractiq.retrieval.models import AnswerResult
 from contractiq.retrieval.rag import answer as retrieval_answer
@@ -27,6 +31,15 @@ def rag_agent(question: str, fallback_doc_ids: set[str] | None = None) -> tuple[
     client = OpenAI(api_key=settings.openai_api_key)
     hint = extract_vendor_hint(question, client)
     doc_ids = resolve_vendor_doc_ids(hint) if hint else None
+
+    # Only strip the vendor name when THIS turn's own hint is what produced
+    # doc_ids -- the search text still needs to name the vendor when doc_ids
+    # instead came from the sticky fallback (a prior turn's scope), since
+    # nothing else in this question would otherwise identify what's being
+    # asked about within that scope.
+    retrieval_query = strip_vendor_mention(question, hint) if doc_ids and hint else None
+
     if doc_ids is None:
         doc_ids = fallback_doc_ids
-    return retrieval_answer(question, doc_ids=doc_ids), doc_ids
+    result = retrieval_answer(question, doc_ids=doc_ids, retrieval_query=retrieval_query)
+    return result, doc_ids

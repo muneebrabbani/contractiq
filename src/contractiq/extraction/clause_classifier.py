@@ -60,10 +60,6 @@ def _match_by_title(section_title: str | None) -> ClauseType | None:
 def _classify_by_text_llm(chunk: ClauseChunk, client: OpenAI) -> ClauseType:
     completion = client.chat.completions.parse(
         model=settings.chat_model,
-        temperature=0,  # deterministic classification -- the same clause text
-        # should resolve to the same clause_type every time, not vary run to
-        # run on sampling noise (observed: 8/40 differed across two runs
-        # before this was set).
         messages=[
             {
                 "role": "system",
